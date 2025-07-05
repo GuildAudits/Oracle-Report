@@ -1,4 +1,49 @@
- 
+# [M-01] `roundDifference` Calculation Ignores Pair Direction 
+
+When calculating a derived price (e.g., BTC/ETH from BTC/USD and ETH/USD), it is critical to know if the two underlying prices are synchronized. The roundDifference is designed to be this synchronization check. According to the project's documentation and interface, it must provide two key pieces of information:
+
+Magnitude: How many versions (rounds) apart are the two price feeds?
+Direction: Which price feed is newer? This is conveyed by the sign of the result.
+The Mismatch: Specification vs. Implementation
+There is a direct contradiction between the contract's public-facing promise and its internal logic.
+
+1. The Specification (The Promise)
+
+The `IIfaPriceFeed.sol` interface clearly documents that roundDifference is directional: 
+File: oracle_contract-main/src/Interface/IIfaPriceFeed.sol
+
+```solidity
+struct DerviedPair {
+    // ...
+    int256 roundDifference; //  roundDifference = asset0.roundId - asset1.roundId  if Pair direction is Forward  otherwise  roundDifference = asset1.roundId  - asset0.roundId
+}
+```
+This establishes a clear contract: a positive roundDifference means the numerator's price is newer, and a negative value means it's older.
+
+2. The Implementation 
+
+The _getPairInfo function in IfaPriceFeed.sol ignores this specification. It calculates the absolute difference, discarding the directional information. 
+File: oracle_contract-main/src/IfaPriceFeed.sol
+
+```solidity
+// ...
+        int256 roundDifference;
+        if (_roundId0 >= _roundId1) {
+            roundDifference = int256(_roundId0) - int256(_roundId1);
+        } else {
+            roundDifference = int256(_roundId1) - int256(_roundId0);
+        }
+// ...
+```
+This code block will always produce a positive roundDifference (or zero), regardless of the _direction parameter.
+
+### Impact: 
+It completely undermines the security model for any protocol that integrates with this oracle. A consuming protocol (e.g., a lending market) would build its safety checks based on the promise made in the interface.
+
+### Recommendation
+The `_getPairInfo` function must be corrected to adhere to its specification. The roundDifference calculation should be moved inside the directional logic. This change also provides an opportunity to improve gas efficiency by reading structs from storage directly instead of making multiple internal function calls.
+
+
 # [L-01] Lack of Timestamp Equality Check in Batch Price Submissions
 
 ### Summary
